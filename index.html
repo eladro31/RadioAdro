@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Adro FM 31.5 | Al Aire</title>
+    <title>Radio Adro FM 31.5 | Todo listo ¡al aire! </title>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -110,6 +110,7 @@
         }
         input:focus { border-color: var(--rad-neon); }
         .btn-gato { background: var(--rad-neon); color: #000; border: none; padding: 10px 15px; font-weight: bold; border-radius: 6px; cursor: pointer; }
+        .btn-live-sync { background: var(--rad-dorado); color: #000; border: none; padding: 8px 12px; font-weight: bold; border-radius: 6px; cursor: pointer; width: 100%; margin-top: 10px; font-size: 0.9rem; display: none; align-items: center; justify-content: center; gap: 6px; text-transform: uppercase; }
 
         /* Contenedor Iframe Oculto YouTube */
         #yt-invisible-wrapper { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
@@ -140,8 +141,9 @@
                 <audio id="radio-core-stream" loop></audio>
                 <div id="yt-invisible-wrapper"><div id="yt-player-core"></div></div>
 
-                <div style="display: flex; justify-content: center; gap: 10px;">
+                <div style="display: flex; flex-direction: column; gap: 5px;">
                     <button id="btn-power" class="btn-gato" style="width:100%; font-size:1.1rem;" onclick="alternarEscuchaRadio()">▶ ENTRAR A LA FRECUENCIA</button>
+                    <button id="btn-sync-live" class="btn-live-sync" onclick="forzarSincronizacionEnVivo()">⚡ IR A LA REPRODUCCIÓN EN VIVO</button>
                 </div>
 
                 <div class="volume-container">
@@ -214,7 +216,6 @@
     </div>
 
     <script>
-        // Cargar API de reproducción Iframe de YouTube
         var tag = document.createElement('script');
         tag.src = "https://www.youtube.com/iframe_api";
         var firstScriptTag = document.getElementsByTagName('script')[0];
@@ -238,13 +239,16 @@
         let esAdminLogueado = false;
         const CUENTA_ADMIN = "admin@mercadogato.com";
 
+        // Guardamos los datos globales del stream activo localmente para calcular la sincronización
+        let datosStreamActual = null;
+
         function onYouTubeIframeAPIReady() {
             ytPlayer = new YT.Player('yt-player-core', {
                 height: '10', width: '10',
                 playerVars: { 'autoplay': 0, 'controls': 0, 'disablekb': 1, 'fs': 0, 'rel': 0 },
                 events: {
                     'onReady': () => { ytListo = true; },
-                    'onStateChange': (e) => { if(e.data === YT.PlayerState.ENDED && ytPlayer.tipoStream === 'playlist') ytPlayer.playVideo(); }
+                    'onStateChange': (e) => { if(e.data === YT.PlayerState.ENDED) ytPlayer.playVideo(); }
                 }
             });
         }
@@ -271,15 +275,15 @@
             db.collection('radio_streaming').doc('canal_principal').onSnapshot(doc => {
                 if(doc.exists) {
                     const datos = doc.data();
+                    datosStreamActual = datos; // Guardar copia en memoria
                     const sintonizado = document.getElementById('btn-power').classList.contains('activo');
                     
                     if(datos.estado === 'reproduciendo') {
                         document.getElementById('reproductor-estado-txt').innerText = `AL AIRE: ${datos.nombrePista.toUpperCase()}`;
-                        
+                        if(sintonizado) document.getElementById('btn-sync-live').style.display = 'flex';
+
                         if(datos.tipo === 'youtube') {
-                            // Detener audio nativo
                             audioCore.pause();
-                            // Cargar y reproducir en YouTube
                             if(ytListo && sintonizado) {
                                 let actualSrc = ytPlayer.getPlaylistId && ytPlayer.getPlaylistId();
                                 if(actualSrc !== datos.playlistId) {
@@ -289,16 +293,19 @@
                                 ytPlayer.playVideo();
                             }
                         } else {
-                            // Detener YouTube
                             if(ytListo) ytPlayer.pauseVideo();
-                            // Cargar audio nativo
-                            if(audioCore.src !== datos.audioUrl) audioCore.src = datos.audioUrl;
+                            if(audioCore.src !== datos.audioUrl) {
+                                audioCore.src = datos.audioUrl;
+                                // Sincronizar automáticamente al cargar una nueva pista si ya está escuchando
+                                if(sintonizado) sincronizarTiempoAudioNativo(datos.timestampInicio);
+                            }
                             if(audioCore.paused && sintonizado) audioCore.play().catch(e => console.log("Espera de interacción"));
                         }
                     } else {
                         audioCore.pause();
                         if(ytListo) ytPlayer.pauseVideo();
                         document.getElementById('reproductor-estado-txt').innerText = "TRANSMISIÓN EN PAUSA / ESPERA";
+                        document.getElementById('btn-sync-live').style.display = 'none';
                     }
                 }
             });
@@ -316,29 +323,59 @@
             });
         }
 
+        // CÁLCULO DE TRANSMISIÓN EN VIVO COMPARTIDA
+        function sincronizarTiempoAudioNativo(timestampInicio) {
+            if(!timestampInicio || !audioCore.duration) return;
+            const momentoActual = Date.now();
+            const segundosTranscurridos = (momentoActual - timestampInicio) / 1000;
+            
+            // Si el archivo ya terminó según el tiempo transcurrido, lo dejamos loopear o reiniciar
+            if(segundosTranscurridos < audioCore.duration) {
+                audioCore.currentTime = segundosTranscurridos;
+            } else {
+                audioCore.currentTime = segundosTranscurridos % audioCore.duration;
+            }
+        }
+
+        function forzarSincronizacionEnVivo() {
+            if(!datosStreamActual || datosStreamActual.estado !== 'reproduciendo') return;
+            
+            if(datosStreamActual.tipo === 'archivo') {
+                sincronizarTiempoAudioNativo(datosStreamActual.timestampInicio);
+                audioCore.play().catch(e => console.log(e));
+            } else if(datosStreamActual.tipo === 'youtube' && ytListo) {
+                // YouTube maneja los índices y estados de listas de reproducción de forma nativa
+                ytPlayer.playVideo();
+            }
+            alert("⚡ Sincronizado con la señal en vivo del operador.");
+        }
+
         function alternarEscuchaRadio() {
             const btn = document.getElementById('btn-power');
+            const btnSync = document.getElementById('btn-sync-live');
+
             if(!btn.classList.contains('activo')) {
                 btn.classList.add('activo');
                 btn.innerText = "🛑 APAGAR RECEPTOR";
                 btn.style.background = "#ff4444";
-                // Forzar repro inicial según el estado actual en la DB
-                db.collection('radio_streaming').doc('canal_principal').get().then(doc => {
-                    if(doc.exists && doc.data().estado === 'reproduciendo') {
-                        const datos = doc.data();
-                        if(datos.tipo === 'youtube' && ytListo) {
-                            ytPlayer.loadPlaylist({ listType: 'playlist', list: datos.playlistId });
-                            ytPlayer.playVideo();
-                        } else if(datos.tipo === 'archivo') {
-                            audioCore.src = datos.audioUrl;
-                            audioCore.play().catch(e => console.log("Permisos"));
-                        }
+                
+                if(datosStreamActual && datosStreamActual.estado === 'reproduciendo') {
+                    btnSync.style.display = 'flex';
+                    if(datosStreamActual.tipo === 'youtube' && ytListo) {
+                        ytPlayer.loadPlaylist({ listType: 'playlist', list: datosStreamActual.playlistId });
+                        ytPlayer.playVideo();
+                    } else if(datosStreamActual.tipo === 'archivo') {
+                        audioCore.src = datosStreamActual.audioUrl;
+                        audioCore.play().then(() => {
+                            sincronizarTiempoAudioNativo(datosStreamActual.timestampInicio);
+                        }).catch(e => console.log("Interacción requerida"));
                     }
-                });
+                }
             } else {
                 btn.classList.remove('activo');
                 btn.innerText = "▶ ENTRAR A LA FRECUENCIA";
                 btn.style.background = "#39ff14";
+                btnSync.style.display = 'none';
                 audioCore.pause();
                 if(ytListo) ytPlayer.pauseVideo();
             }
@@ -349,12 +386,11 @@
             if(ytListo) ytPlayer.setVolume(val * 100);
         }
 
-        // CONTROL ADMIN: GUARDAR E INTERPRETAR LA PLAYLIST DE YT
+        // CONTROL ADMIN: PLAYLIST YT
         function adminEstablecerPlaylistYouTube() {
             const inputVal = document.getElementById('admin-yt-input').value.trim();
-            if(!inputVal) return alert("Ingresá un link o ID válido de playlist.");
+            if(!inputVal) return alert("Ingresá un link o ID válido.");
             
-            // Extraer ID de la playlist por si pegan la URL entera
             let idPlaylist = inputVal;
             if(inputVal.includes("list=")) {
                 idPlaylist = inputVal.split("list=")[1].split("&")[0];
@@ -365,14 +401,15 @@
                 playlistId: idPlaylist,
                 nombrePista: "Playlist YouTube en Vivo",
                 estado: 'reproduciendo',
+                timestampInicio: Date.now(), // Registro de marca temporal cero
                 actualizadoPor: auth.currentUser.uid
             }).then(() => {
                 document.getElementById('admin-yt-input').value = "";
-                alert("¡Señal cambiada! Transmitiendo la Playlist de YouTube.");
+                alert("¡Playlist de YouTube al aire!");
             });
         }
 
-        // CONTROL ADMIN: SUBIR ARCHIVO LOCAL
+        // CONTROL ADMIN: ARCHIVO COMPARTIDO EN VIVO
         function subirYTransmitirAudio(destino) {
             const selector = (destino === 'transmision_principal') ? document.getElementById('admin-file-selector') : document.getElementById('admin-cartuchera-selector');
             const archivo = selector.files[0];
@@ -401,6 +438,7 @@
                                 audioUrl: downloadURL,
                                 nombrePista: archivo.name,
                                 estado: 'reproduciendo',
+                                timestampInicio: Date.now(), // Marcamos el segundo exacto donde inició el tema
                                 actualizadoPor: auth.currentUser.uid
                             });
                         } else {
@@ -436,6 +474,7 @@
                 audioUrl: urlAudio,
                 nombrePista: `ENTREVISTA: ${nombreAudio}`,
                 estado: 'reproduciendo',
+                timestampInicio: Date.now(), // Marcamos tiempo real para las cortinas/entrevistas
                 actualizadoPor: auth.currentUser.uid
             });
         }
