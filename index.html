@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radio Adro FM 31.5 | Al Aire</title>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+    <style>
+        :root {
+            --rad-bg: #060b07;
+            --rad-panel: #111b13;
+            --rad-neon: #39ff14;
+            --rad-azul: #0070f3;
+            --rad-texto: #ffffff;
+            --rad-gris: #8a9a8c;
+            --rad-rojo: #ff4444;
+            --rad-dorado: #ffd700;
+        }
+
+        body {
+            margin: 0; padding: 0;
+            font-family: 'Segoe UI', sans-serif;
+            background: var(--rad-bg);
+            color: var(--rad-texto);
+            display: flex; flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .radio-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 15px 30px; background: rgba(17, 27, 19, 0.9);
+            border-bottom: 2px solid var(--rad-neon);
+        }
+        .station-logo { display: flex; align-items: center; gap: 12px; font-size: 1.5rem; font-weight: bold; }
+        .station-logo img { height: 40px; width: auto; }
+        .station-logo span { color: var(--rad-neon); font-family: monospace; }
+
+        .radio-main-layout {
+            flex: 1; display: grid;
+            grid-template-columns: 1fr; gap: 20px;
+            padding: 20px; max-width: 1200px; margin: 0 auto; width: 100%;
+            box-sizing: border-box;
+        }
+        @media (min-width: 768px) {
+            .radio-main-layout { grid-template-columns: 1fr 380px; }
+        }
+
+        .player-side { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 20px; }
+        .dial-box {
+            background: var(--rad-panel); border: 1px solid #1e3522; border-radius: 20px;
+            padding: 30px; width: 100%; box-sizing: border-box; text-align: center;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.6); position: relative;
+        }
+        .radio-screen {
+            background: #000; border: 1px solid rgba(57, 255, 20, 0.2);
+            border-radius: 10px; padding: 20px; margin-bottom: 20px; position: relative;
+        }
+        .live-tag {
+            position: absolute; top: 10px; left: 15px; font-size: 0.65rem;
+            font-weight: bold; color: #000; background: var(--rad-neon);
+            padding: 2px 6px; border-radius: 3px; animation: blinker 1.5s linear infinite;
+        }
+        @keyframes blinker { 50% { opacity: 0; } }
+        .frequency { font-size: 3.5rem; font-family: monospace; font-weight: bold; color: var(--rad-neon); margin: 5px 0; }
+
+        .volume-container { display: flex; align-items: center; gap: 10px; margin-top: 15px; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 8px; }
+        input[type="range"] { accent-color: var(--rad-neon); cursor: pointer; width: 100%; }
+
+        /* Consola de Operadores */
+        .admin-console {
+            background: #1c1010; border: 2px dashed var(--rad-rojo); border-radius: 15px;
+            padding: 20px; width: 100%; box-sizing: border-box; display: none;
+        }
+        .btn-admin { background: var(--rad-rojo); color: white; border: none; padding: 10px 15px; font-weight: bold; border-radius: 6px; cursor: pointer; width: 100%; margin-top: 5px; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.85rem; }
+        
+        .cartuchera-box {
+            margin-top: 15px; background: rgba(0, 0, 0, 0.4); border: 1px solid #331a1a;
+            padding: 12px; border-radius: 8px; text-align: left;
+        }
+        .grid-audios {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin-top: 8px;
+        }
+        .btn-audio-quick {
+            background: #2b1616; border: 1px solid var(--rad-rojo); color: #fff; padding: 8px;
+            font-size: 0.75rem; border-radius: 4px; cursor: pointer; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
+            transition: 0.2s;
+        }
+        .btn-audio-quick:hover { background: var(--rad-rojo); color: black; }
+
+        /* Sección Chat */
+        .chat-side {
+            background: var(--rad-panel); border: 1px solid #1e3522; border-radius: 20px;
+            display: flex; flex-direction: column; height: 550px; overflow: hidden;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+        }
+        .chat-header { background: rgba(0,0,0,0.4); padding: 15px; font-weight: bold; border-bottom: 1px solid #1e3522; text-align: center; }
+        .chat-messages { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .msg-bubble { background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 8px; font-size: 0.9rem; max-width: 85%; word-break: break-word; }
+        .msg-admin { background: rgba(0, 112, 243, 0.15) !important; border: 1px solid var(--rad-azul); align-self: flex-start; color: #fff; }
+        .msg-admin .username { color: var(--rad-neon) !important; font-weight: bold; }
+        .msg-bubble .username { color: var(--rad-gris); font-size: 0.75rem; display: block; margin-bottom: 2px; }
+        
+        .chat-footer { padding: 12px; background: rgba(0,0,0,0.3); border-top: 1px solid #1e3522; display: flex; gap: 8px; }
+        
+        input[type="text"], input[type="password"], input[type="file"] {
+            width: 100%; padding: 10px; border-radius: 6px; background: #070c08; color: #fff; border: 1px solid #1e3522; box-sizing: border-box; outline: none;
+        }
+        input:focus { border-color: var(--rad-neon); }
+        .btn-gato { background: var(--rad-neon); color: #000; border: none; padding: 10px 15px; font-weight: bold; border-radius: 6px; cursor: pointer; }
+
+        /* Contenedor Iframe Oculto YouTube */
+        #yt-invisible-wrapper { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    </style>
+</head>
+<body onload="inicializarRadioAdro()">
+
+    <div class="radio-header">
+        <div class="station-logo" onclick="location.reload()">
+            <img src="https://i.postimg.cc/wMm1XKvS/1779164047148.png" alt="Logo Adro">
+            Radio Adro <span>FM</span>
+        </div>
+        <div id="auth-status-top" style="font-size: 0.85rem; font-family: monospace;">
+            <button onclick="abrirLoginAdmin()" style="background:none; border:1px solid var(--rad-azul); color:white; padding:4px 8px; border-radius:4px; cursor:pointer;">Staff Login</button>
+        </div>
+    </div>
+
+    <div class="radio-main-layout">
+        
+        <div class="player-side">
+            <div class="dial-box">
+                <div class="radio-screen">
+                    <div class="live-tag">LIVE</div>
+                    <div class="frequency">31.5</div>
+                    <div id="reproductor-estado-txt" style="font-size:0.8rem; color:var(--rad-neon); font-family:monospace;">SINTONIZANDO SEÑAL...</div>
+                </div>
+
+                <audio id="radio-core-stream" loop></audio>
+                <div id="yt-invisible-wrapper"><div id="yt-player-core"></div></div>
+
+                <div style="display: flex; justify-content: center; gap: 10px;">
+                    <button id="btn-power" class="btn-gato" style="width:100%; font-size:1.1rem;" onclick="alternarEscuchaRadio()">▶ ENTRAR A LA FRECUENCIA</button>
+                </div>
+
+                <div class="volume-container">
+                    <span style="font-size:0.8rem;">🔊</span>
+                    <input type="range" id="volumen-oyente" min="0" max="1" step="0.05" value="0.5" oninput="cambiarVolumenOyente(this.value)">
+                </div>
+            </div>
+
+            <div id="panel-locutor" class="admin-console">
+                <h4 style="color:var(--rad-rojo); margin-top:0; border-bottom:1px solid var(--rad-rojo); padding-bottom:5px; text-transform: uppercase;">🎚 McKinney Consola Máster</h4>
+                
+                <div style="margin-bottom:15px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
+                    <label style="font-size:0.75rem; color:var(--rad-neon); font-weight: bold;">📁 OPCIÓN A: TRANSMITIR DESDE MIS ARCHIVOS</label>
+                    <input type="file" id="admin-file-selector" accept="audio/*" style="margin-top:6px; font-size: 0.8rem;">
+                    
+                    <div id="upload-progress-container" style="display:none; margin-top:8px; background:#000; padding:6px; border-radius:4px; font-size:0.75rem;">
+                        <div style="background:#222; height:6px; border-radius:3px; overflow:hidden;">
+                            <div id="upload-progress-bar" style="background:var(--rad-neon); width:0%; height:100%;"></div>
+                        </div>
+                    </div>
+                    <button class="btn-admin" style="background:var(--rad-azul); margin-top: 8px; width: 100%;" onclick="subirYTransmitirAudio('transmision_principal')">🚀 LARGAR ARCHIVO AL AIRE</button>
+                </div>
+
+                <div style="margin-bottom:15px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
+                    <label style="font-size:0.75rem; color:var(--rad-dorado); font-weight: bold;">📺 OPCIÓN B: AGREGAR PLAYLIST DE YOUTUBE</label>
+                    <input type="text" id="admin-yt-input" placeholder="Pegá el Link o ID de la Playlist aquí" style="margin-top:6px; font-size: 0.85rem;">
+                    <button class="btn-admin" style="background:#cc181e; margin-top: 8px; width: 100%;" onclick="adminEstablecerPlaylistYouTube()">📡 CONECTAR PLAYLIST YT</button>
+                </div>
+
+                <button class="btn-admin" style="background:#222; border:1px solid #444; width: 100%; margin-bottom: 12px;" onclick="adminPausarAudio()">⏸ PAUSAR SEÑAL MAESTRA</button>
+
+                <div style="border-top:1px solid #331a1a; padding-top:12px;">
+                    <button id="btn-mic" class="btn-admin" style="background:#e65c00;" onclick="alternarMicEnVivo()">🎙️ ENCIERRO DE RETORNO / MIC AL AIRE</button>
+                </div>
+
+                <div class="cartuchera-box">
+                    <span style="font-size:0.75rem; font-weight:bold; color:var(--rad-dorado); text-transform:uppercase;">🎙️ Cartuchera de Entrevistas y Cortinas</span>
+                    <input type="file" id="admin-cartuchera-selector" accept="audio/*" style="padding:5px; font-size:0.75rem; margin-top: 5px;">
+                    <button class="btn-admin" style="background: #3a225d; font-size:0.75rem; padding:6px; margin-top:6px; width: 100%;" onclick="subirYTransmitirAudio('cartuchera')">💾 Guardar en Cartuchera</button>
+                    <div id="lista-audios-cartuchera" class="grid-audios"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-side">
+            <div class="chat-header">💬 CHAT DE LA COMUNIDAD</div>
+            <div id="chat-join-zone" style="padding:15px; text-align:center; background:rgba(0,0,0,0.2); flex:1; display:flex; flex-direction:column; justify-content:center; gap:10px;">
+                <label style="font-size:0.85rem; color:var(--rad-gris);">Ingresá un Nickname para chatear:</label>
+                <input type="text" id="chat-nick-input" placeholder="Ej: Juan_Adrogue">
+                <button class="btn-gato" onclick="unirseAlChat()">Conectarse al Chat</button>
+            </div>
+            <div id="chat-box-mensajes" class="chat-messages" style="display:none;"></div>
+            <div id="chat-input-zone" class="chat-footer" style="display:none;">
+                <input type="text" id="chat-msg-input" placeholder="Escribir mensaje..." onkeydown="if(event.key==='Enter') enviarMensajeChat()">
+                <button class="btn-gato" onclick="enviarMensajeChat()">Enviar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-admin-login" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:1000; align-items:center; justify-content:center; padding:20px;">
+        <div style="background:var(--rad-panel); padding:20px; border-radius:10px; border:1px solid var(--rad-rojo); width:100%; max-width:320px;">
+            <h3 style="margin-top:0; color:var(--rad-rojo);">Acceso Operadores</h3>
+            <label style="font-size:0.8rem;">Email Técnico:</label>
+            <input type="text" id="admin-email" placeholder="admin@mercadogato.com" style="margin-bottom:10px;">
+            <label style="font-size:0.8rem;">Contraseña de Seguridad:</label>
+            <input type="password" id="admin-pass" placeholder="••••••••">
+            <button class="btn-admin" onclick="procesarLoginAdmin()">Ingresar a Consola</button>
+            <button class="btn-gato" style="background:#222; color:#fff; width:100%; margin-top:5px;" onclick="document.getElementById('modal-admin-login').style.display='none'">Cancelar</button>
+        </div>
+    </div>
+
+    <script>
+        // Cargar API de reproducción Iframe de YouTube
+        var tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        var firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+        const firebaseConfig = { apiKey: "AIzaSyA58MXpItx1F9zNnJbyeS_4FT_onYx9wig", authDomain: "uqt-virtual.firebaseapp.com", projectId: "uqt-virtual", storageBucket: "uqt-virtual.appspot.com", messagingSenderId: "777641217730", appId: "1:777641217730:web:8c5b5f9b4c7d8e2a" };
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const storage = firebase.storage();
+
+        let audioCore = document.getElementById('radio-core-stream');
+        let ytPlayer = null;
+        let ytListo = false;
+
+        let locutorActive = false;
+        let micStream = null;
+        let audioCtx = null;
+        let micNode = null;
+        let nicknameActual = "";
+        let esAdminLogueado = false;
+        const CUENTA_ADMIN = "admin@mercadogato.com";
+
+        function onYouTubeIframeAPIReady() {
+            ytPlayer = new YT.Player('yt-player-core', {
+                height: '10', width: '10',
+                playerVars: { 'autoplay': 0, 'controls': 0, 'disablekb': 1, 'fs': 0, 'rel': 0 },
+                events: {
+                    'onReady': () => { ytListo = true; },
+                    'onStateChange': (e) => { if(e.data === YT.PlayerState.ENDED && ytPlayer.tipoStream === 'playlist') ytPlayer.playVideo(); }
+                }
+            });
+        }
+
+        function inicializarRadioAdro() {
+            auth.onAuthStateChanged(user => {
+                const panel = document.getElementById('panel-locutor');
+                const topBar = document.getElementById('auth-status-top');
+                if(user && user.email.toLowerCase() === CUENTA_ADMIN.toLowerCase()) {
+                    esAdminLogueado = true;
+                    panel.style.display = 'block';
+                    topBar.innerHTML = `<span style="color:#ff4444; font-weight:bold;">🔴 MODO OPERADOR</span> <button onclick="auth.signOut()" style="background:#333; border:none; color:white; padding:2px 6px; font-size:0.75rem; border-radius:3px; cursor:pointer;">Salir</button>`;
+                    nicknameActual = "@RadioAdroFM31.5";
+                    saltarFilaIdentificacion();
+                    escucharCartucheraAdmin();
+                } else {
+                    esAdminLogueado = false;
+                    panel.style.display = 'none';
+                    topBar.innerHTML = `<button onclick="abrirLoginAdmin()" style="background:none; border:1px solid #0070f3; color:white; padding:4px 8px; border-radius:4px; cursor:pointer;">Staff Login</button>`;
+                }
+            });
+
+            // Sincronización de flujo maestro en tiempo real
+            db.collection('radio_streaming').doc('canal_principal').onSnapshot(doc => {
+                if(doc.exists) {
+                    const datos = doc.data();
+                    const sintonizado = document.getElementById('btn-power').classList.contains('activo');
+                    
+                    if(datos.estado === 'reproduciendo') {
+                        document.getElementById('reproductor-estado-txt').innerText = `AL AIRE: ${datos.nombrePista.toUpperCase()}`;
+                        
+                        if(datos.tipo === 'youtube') {
+                            // Detener audio nativo
+                            audioCore.pause();
+                            // Cargar y reproducir en YouTube
+                            if(ytListo && sintonizado) {
+                                let actualSrc = ytPlayer.getPlaylistId && ytPlayer.getPlaylistId();
+                                if(actualSrc !== datos.playlistId) {
+                                    ytPlayer.loadPlaylist({ listType: 'playlist', list: datos.playlistId });
+                                    ytPlayer.setShuffle(true);
+                                }
+                                ytPlayer.playVideo();
+                            }
+                        } else {
+                            // Detener YouTube
+                            if(ytListo) ytPlayer.pauseVideo();
+                            // Cargar audio nativo
+                            if(audioCore.src !== datos.audioUrl) audioCore.src = datos.audioUrl;
+                            if(audioCore.paused && sintonizado) audioCore.play().catch(e => console.log("Espera de interacción"));
+                        }
+                    } else {
+                        audioCore.pause();
+                        if(ytListo) ytPlayer.pauseVideo();
+                        document.getElementById('reproductor-estado-txt').innerText = "TRANSMISIÓN EN PAUSA / ESPERA";
+                    }
+                }
+            });
+
+            // Escuchar Chat
+            db.collection('radio_chat').orderBy('fecha', 'asc').limitToLast(40).onSnapshot(snap => {
+                const contenedor = document.getElementById('chat-box-mensajes');
+                contenedor.innerHTML = "";
+                snap.forEach(doc => {
+                    const msg = doc.data();
+                    const claseAdmin = msg.user === "@RadioAdroFM31.5" ? 'msg-admin' : '';
+                    contenedor.innerHTML += `<div class="msg-bubble ${claseAdmin}"><span class="username">${msg.user}</span><div>${msg.texto}</div></div>`;
+                });
+                contenedor.scrollTop = contenedor.scrollHeight;
+            });
+        }
+
+        function alternarEscuchaRadio() {
+            const btn = document.getElementById('btn-power');
+            if(!btn.classList.contains('activo')) {
+                btn.classList.add('activo');
+                btn.innerText = "🛑 APAGAR RECEPTOR";
+                btn.style.background = "#ff4444";
+                // Forzar repro inicial según el estado actual en la DB
+                db.collection('radio_streaming').doc('canal_principal').get().then(doc => {
+                    if(doc.exists && doc.data().estado === 'reproduciendo') {
+                        const datos = doc.data();
+                        if(datos.tipo === 'youtube' && ytListo) {
+                            ytPlayer.loadPlaylist({ listType: 'playlist', list: datos.playlistId });
+                            ytPlayer.playVideo();
+                        } else if(datos.tipo === 'archivo') {
+                            audioCore.src = datos.audioUrl;
+                            audioCore.play().catch(e => console.log("Permisos"));
+                        }
+                    }
+                });
+            } else {
+                btn.classList.remove('activo');
+                btn.innerText = "▶ ENTRAR A LA FRECUENCIA";
+                btn.style.background = "#39ff14";
+                audioCore.pause();
+                if(ytListo) ytPlayer.pauseVideo();
+            }
+        }
+
+        function cambiarVolumenOyente(val) {
+            audioCore.volume = val;
+            if(ytListo) ytPlayer.setVolume(val * 100);
+        }
+
+        // CONTROL ADMIN: GUARDAR E INTERPRETAR LA PLAYLIST DE YT
+        function adminEstablecerPlaylistYouTube() {
+            const inputVal = document.getElementById('admin-yt-input').value.trim();
+            if(!inputVal) return alert("Ingresá un link o ID válido de playlist.");
+            
+            // Extraer ID de la playlist por si pegan la URL entera
+            let idPlaylist = inputVal;
+            if(inputVal.includes("list=")) {
+                idPlaylist = inputVal.split("list=")[1].split("&")[0];
+            }
+
+            db.collection('radio_streaming').doc('canal_principal').set({
+                tipo: 'youtube',
+                playlistId: idPlaylist,
+                nombrePista: "Playlist YouTube en Vivo",
+                estado: 'reproduciendo',
+                actualizadoPor: auth.currentUser.uid
+            }).then(() => {
+                document.getElementById('admin-yt-input').value = "";
+                alert("¡Señal cambiada! Transmitiendo la Playlist de YouTube.");
+            });
+        }
+
+        // CONTROL ADMIN: SUBIR ARCHIVO LOCAL
+        function subirYTransmitirAudio(destino) {
+            const selector = (destino === 'transmision_principal') ? document.getElementById('admin-file-selector') : document.getElementById('admin-cartuchera-selector');
+            const archivo = selector.files[0];
+            if(!archivo) return alert("Selecciona un archivo primero.");
+
+            const infoProgreso = document.getElementById('upload-progress-container');
+            const barraProgreso = document.getElementById('upload-progress-bar');
+            if(destino === 'transmision_principal') infoProgreso.style.display = 'block';
+
+            const storageRef = storage.ref(`radio_audios/${Date.now()}_${archivo.name}`);
+            const uploadTask = storageRef.put(archivo);
+
+            uploadTask.on('state_changed', 
+                (snap) => {
+                    const pct = (snap.bytesTransferred / snap.totalBytes) * 100;
+                    if(destino === 'transmision_principal') barraProgreso.style.width = `${pct}%`;
+                }, 
+                (err) => { alert(err.message); infoProgreso.style.display = 'none'; }, 
+                () => {
+                    uploadTask.snapshot.ref.getDownloadURL().then((downloadURL) => {
+                        infoProgreso.style.display = 'none';
+                        selector.value = "";
+                        if(destino === 'transmision_principal') {
+                            db.collection('radio_streaming').doc('canal_principal').set({
+                                tipo: 'archivo',
+                                audioUrl: downloadURL,
+                                nombrePista: archivo.name,
+                                estado: 'reproduciendo',
+                                actualizadoPor: auth.currentUser.uid
+                            });
+                        } else {
+                            db.collection('radio_cartuchera').add({
+                                nombre: archivo.name,
+                                url: downloadURL,
+                                fechaRegistro: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                        }
+                    });
+                }
+            );
+        }
+
+        function adminPausarAudio() {
+            db.collection('radio_streaming').doc('canal_principal').update({ estado: 'pausado' });
+        }
+
+        function escucharCartucheraAdmin() {
+            db.collection('radio_cartuchera').orderBy('fechaRegistro', 'desc').onSnapshot(snap => {
+                const box = document.getElementById('lista-audios-cartuchera');
+                box.innerHTML = "";
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    box.innerHTML += `<button class="btn-audio-quick" title="${d.nombre}" onclick="dispararAudioCartuchera('${d.url}', '${d.nombre}')">📻 ${d.nombre}</button>`;
+                });
+            });
+        }
+
+        function dispararAudioCartuchera(urlAudio, nombreAudio) {
+            db.collection('radio_streaming').doc('canal_principal').set({
+                tipo: 'archivo',
+                audioUrl: urlAudio,
+                nombrePista: `ENTREVISTA: ${nombreAudio}`,
+                estado: 'reproduciendo',
+                actualizadoPor: auth.currentUser.uid
+            });
+        }
+
+        // MIC EN VIVO
+        async function alternarMicEnVivo() {
+            const btn = document.getElementById('btn-mic');
+            if(!locutorActive) {
+                try {
+                    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    micNode = audioCtx.createMediaStreamSource(micStream);
+                    micNode.connect(audioCtx.destination);
+                    locutorActive = true;
+                    btn.innerText = "🎤 MIC AL AIRE (ACTIVO)";
+                    btn.style.background = "#39ff14"; btn.style.color = "#000";
+                } catch(e) { alert("Permisos de micrófono requeridos."); }
+            } else {
+                if(micStream) micStream.getTracks().forEach(track => track.stop());
+                locutorActive = false;
+                btn.innerText = "🎙️ ENCIERRO DE RETORNO / MIC AL AIRE";
+                btn.style.background = "#e65c00"; btn.style.color = "#fff";
+            }
+        }
+
+        // CHAT
+        function unirseAlChat() {
+            const input = document.getElementById('chat-nick-input');
+            const nick = input.value.trim().replace(/[@\s]/g, '_');
+            if(!nick || nick.length < 3) return alert("Nickname inválido.");
+            if(nick.toLowerCase().includes("admin") || nick.toLowerCase().includes("radioadro")) return alert("Reservado.");
+            nicknameActual = nick;
+            saltarFilaIdentificacion();
+        }
+
+        function saltarFilaIdentificacion() {
+            document.getElementById('chat-join-zone').style.display = 'none';
+            document.getElementById('chat-box-mensajes').style.display = 'flex';
+            document.getElementById('chat-input-zone').style.display = 'flex';
+        }
+
+        function enviarMensajeChat() {
+            const input = document.getElementById('chat-msg-input');
+            const texto = input.value.trim();
+            if(!texto) return;
+            db.collection('radio_chat').add({
+                user: esAdminLogueado ? "@RadioAdroFM31.5" : nicknameActual,
+                texto: texto,
+                fecha: firebase.firestore.FieldValue.serverTimestamp()
+            }).then(() => { input.value = ""; });
+        }
+
+        function abrirLoginAdmin() { document.getElementById('modal-admin-login').style.display = 'flex'; }
+        function procesarLoginAdmin() {
+            const email = document.getElementById('admin-email').value.trim();
+            const pass = document.getElementById('admin-pass').value;
+            auth.signInWithEmailAndPassword(email, pass).then(() => {
+                document.getElementById('modal-admin-login').style.display = 'none';
+            }).catch(e => alert("Error: " + e.message));
+        }
+    </script>
+</body>
+</html>
